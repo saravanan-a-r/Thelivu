@@ -1,0 +1,93 @@
+# Settings of the embedding adapter. Every key is required; an unknown key is an error.
+
+base_checkpoint: /home/admin1/projects/Thelivu-750M-release/Thelivu-750M
+data_root: /home/admin1/projects/EchoMeBetter/adapter/embedding_adapter/dataset/phase_1
+cache_root: /home/admin1/projects/Embedding_adapter_data/token_cache
+eval_root: /home/admin1/projects/Embedding_adapter_data/eval_bench
+
+# LoRA on the 7 projections of each of the 24 encoder layers. rsLoRA: scaling = alpha / sqrt(rank).
+adapter:
+  rank: 32
+  alpha: 8.0
+  use_rslora: true
+  dropout: 0.05
+
+# Longer texts are cut, never dropped. A change here needs `embed.py prepare` again.
+text:
+  query_prefix: "query: "
+  passage_prefix: "passage: "
+  max_query_tokens: 64
+  max_passage_tokens: 256
+  eval_max_tokens: 512
+
+loss:
+  temperature: 0.02
+  matryoshka_dims: [1024, 512, 256, 128]
+
+# Dev queries are held out of training by a hash of the record id.
+dev:
+  queries_per_source: 1000
+  queries_overrides: {miracl-english: 200, mr-tydi-english: 0}
+  split_salt: "embed-dev-v1"
+  distractors_per_source: 5000
+  benchmark_tasks: [scifact, nfcorpus, arguana, fiqa, scidocs, sts]
+  benchmark_every: 2000
+
+optim:
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+  grad_clip: 1.0
+  precision: auto          # auto = bf16 on the GPU, fp32 on the CPU
+
+# Stage 1: every pair, in-batch negatives only.
+stage_1:
+  batch_queries: 1024
+  hard_negatives: 0
+  lr: 3.0e-4
+  warmup_steps: 500
+  min_lr_ratio: 0.05
+  epochs_webfaq: 1
+  epochs_curated: 3
+  webfaq_sample: 0
+  source_records: {}       # source: at most this many records (drawn once by seed)
+  source_epochs: {}        # source: epochs, instead of epochs_webfaq / epochs_curated
+  eval_every: 1000
+  save_every: 500
+  keep_last: 3
+
+# Stage 2: curated sources + a WebFAQ sample, each query with mined hard negatives.
+stage_2:
+  batch_queries: 256
+  hard_negatives: 4
+  lr: 1.0e-4
+  warmup_steps: 200
+  min_lr_ratio: 0.05
+  epochs_webfaq: 2
+  epochs_curated: 2
+  webfaq_sample: 400000
+  source_records: {}
+  source_epochs: {}
+  eval_every: 1000
+  save_every: 500
+  keep_last: 3
+
+mining:
+  top_k: 200
+  skip_top: 30
+  max_score_ratio: 0.95
+  per_query: 4
+
+# Late chunking: a long document is encoded whole (in overlapping windows when it is
+# longer than one window) and each chunk is the mean of its own token vectors.
+late_chunking:
+  window_tokens: 2048
+  overlap_tokens: 256
+  chunk_tokens: 256
+
+resources:
+  gpu_memory_gb: 34
+  chunk_tokens: 12000      # padded tokens per chunk in the gradient pass
+  encode_tokens: 48000     # padded tokens per batch without gradients
+  cpu_threads: 0           # 0 = up to 24 cores (more threads are slower, see src/resources.py)
+  cpu_chunk_tokens: 1000
+  seed: 1234
