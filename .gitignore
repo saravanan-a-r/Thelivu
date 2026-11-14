@@ -40,6 +40,8 @@ pretrain_corpus/logs/
 # ---------------------------------------------------------------------------
 runs/
 */runs/
+adapter/*/runs/
+adapter/*/dataset/
 *.safetensors
 *.pt
 *.bin
