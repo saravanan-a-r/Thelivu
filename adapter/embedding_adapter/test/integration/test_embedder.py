@@ -203,3 +203,12 @@ def test_the_window_of_late_chunking_can_be_chosen_per_call(embedder, monkeypatc
     monkeypatch.setitem(embedder.contract["late_chunking"], "overlap_tokens", 20)
     with pytest.raises(DataError, match="the adapter's overlap of 20"):
         embedder.token_vectors(LONG, window_tokens=32)  # 20 does not fit a window of 32
+
+
+def test_the_late_chunking_defaults_can_be_read_and_passed_back(embedder):
+    defaults = embedder.late_chunking_defaults
+    assert defaults == {"window_tokens": 64, "overlap_tokens": 8, "chunk_tokens": 12}
+    defaults["window_tokens"] = 32  # a copy: the adapter's own settings do not change
+    assert embedder.late_chunking_defaults["window_tokens"] == 64
+    again = embedder.token_vectors(LONG, window_tokens=64, overlap_tokens=8)
+    assert torch.equal(again.vectors, embedder.token_vectors(LONG).vectors)

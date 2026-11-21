@@ -160,6 +160,13 @@ class TextEmbedder:
     def dimension(self) -> int:
         return self.base.config.d_model
 
+    @property
+    def late_chunking_defaults(self) -> dict[str, int]:
+        """The window, overlap and chunk size (in tokens) that late chunking uses when a call sets none."""
+        window, overlap = self._late_settings()
+        chunk = int(self.contract["late_chunking"]["chunk_tokens"])
+        return {"window_tokens": window, "overlap_tokens": overlap, "chunk_tokens": chunk}
+
     @contextmanager
     def base_behaviour(self) -> Iterator[None]:
         """Inside the block the encoder is the plain base encoder (adapter switched off)."""
