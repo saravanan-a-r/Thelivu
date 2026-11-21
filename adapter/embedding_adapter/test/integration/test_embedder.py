@@ -154,3 +154,26 @@ def test_late_chunks_cover_the_document_and_are_pooled_token_vectors(embedder):
     assert [chunk.vector.shape[0] for chunk in own] == [16, 16]
     with pytest.raises(DataError, match="outside the text"):
         embedder.late_chunk(LONG, spans=[(0, len(LONG) + 1)])
+
+
+def test_the_overlap_of_late_chunking_can_be_chosen_per_call(embedder):
+    default = embedder.token_vectors(LONG)
+    same = embedder.token_vectors(LONG, overlap_tokens=8)  # the adapter's own value
+    assert same.windows == default.windows and torch.equal(same.vectors, default.vectors)
+    wide = embedder.token_vectors(LONG, overlap_tokens=30)
+    none = embedder.token_vectors(LONG, overlap_tokens=0)
+    assert none.windows <= default.windows < wide.windows
+    for tokens in (wide, none):
+        assert len(tokens) == len(default)
+        assert torch.isfinite(tokens.vectors).all()
+        assert (tokens.vectors.abs().sum(dim=1) > 0).all()  # every token got a vector
+    chunks = embedder.late_chunk(LONG, chunk_tokens=20, overlap_tokens=30)
+    assert "".join(chunk.text for chunk in chunks) == LONG
+
+    for bad in (-1, 32, 1000):
+        with pytest.raises(DataError, match="overlap_tokens must be from 0 to 31"):
+            embedder.token_vectors(LONG, overlap_tokens=bad)
+    with pytest.raises(DataError, match="whole number"):
+        embedder.token_vectors(LONG, overlap_tokens=2.5)
+    with pytest.raises(DataError, match="more than twice the overlap"):
+        embedder.token_vectors(LONG, overlap_tokens=31)  # the window cannot hold the text then
