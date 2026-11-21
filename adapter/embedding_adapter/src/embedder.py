@@ -215,6 +215,12 @@ class TextEmbedder:
 
     # -- one vector per token (late chunking) ------------------------------
 
+    def _late_settings(self) -> tuple[int, int]:
+        """The window and the overlap, in tokens, that late chunking runs with."""
+        settings = self.contract["late_chunking"]
+        window = min(int(settings["window_tokens"]), self.base.config.max_encoder_length)
+        return window, int(settings["overlap_tokens"])
+
     @torch.no_grad()
     def token_vectors(self, text: str, *, title: str = "", kind: str = "passage") -> TokenVectors:
         """
@@ -227,9 +233,7 @@ class TextEmbedder:
             raise DataError(f"kind must be 'passage' or 'query', got {kind!r}")
         if not text.strip():
             raise DataError("the text is empty")
-        settings = self.contract["late_chunking"]
-        window = min(int(settings["window_tokens"]), self.base.config.max_encoder_length)
-        overlap = int(settings["overlap_tokens"])
+        window, overlap = self._late_settings()
         head_text = self.contract[f"{kind}_prefix"] + (f"{title}. " if title else "")
         encoded = self.tokenizer.encode_with_spans(text, head_text)
         head = encoded.ids[: encoded.content.start]
