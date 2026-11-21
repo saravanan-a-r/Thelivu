@@ -177,3 +177,29 @@ def test_the_overlap_of_late_chunking_can_be_chosen_per_call(embedder):
         embedder.token_vectors(LONG, overlap_tokens=2.5)
     with pytest.raises(DataError, match="more than twice the overlap"):
         embedder.token_vectors(LONG, overlap_tokens=31)  # the window cannot hold the text then
+
+
+def test_the_window_of_late_chunking_can_be_chosen_per_call(embedder, monkeypatch):
+    default = embedder.token_vectors(LONG)
+    same = embedder.token_vectors(LONG, window_tokens=64)  # the adapter's own value
+    assert same.windows == default.windows and torch.equal(same.vectors, default.vectors)
+    small = embedder.token_vectors(LONG, window_tokens=32)
+    big = embedder.token_vectors(LONG, window_tokens=128)
+    assert big.windows < default.windows < small.windows
+    for tokens in (small, big):
+        assert len(tokens) == len(default)
+        assert torch.isfinite(tokens.vectors).all()
+        assert (tokens.vectors.abs().sum(dim=1) > 0).all()  # every token got a vector
+    chunks = embedder.late_chunk(LONG, chunk_tokens=20, window_tokens=96, overlap_tokens=16)
+    assert "".join(chunk.text for chunk in chunks) == LONG
+
+    for bad in (16, 31, 129, 1000):
+        with pytest.raises(DataError, match="window_tokens must be from 32 to 128"):
+            embedder.token_vectors(LONG, window_tokens=bad)
+    with pytest.raises(DataError, match="whole number"):
+        embedder.token_vectors(LONG, window_tokens=64.0)
+    with pytest.raises(DataError, match="overlap_tokens must be from 0 to 15"):
+        embedder.token_vectors(LONG, window_tokens=32, overlap_tokens=16)
+    monkeypatch.setitem(embedder.contract["late_chunking"], "overlap_tokens", 20)
+    with pytest.raises(DataError, match="the adapter's overlap of 20"):
+        embedder.token_vectors(LONG, window_tokens=32)  # 20 does not fit a window of 32

@@ -215,15 +215,28 @@ class TextEmbedder:
 
     # -- one vector per token (late chunking) ------------------------------
 
-    def _late_settings(self, overlap_tokens: int | None = None) -> tuple[int, int]:
+    def _late_settings(
+        self, window_tokens: int | None = None, overlap_tokens: int | None = None
+    ) -> tuple[int, int]:
         """
         The window and the overlap, in tokens, that late chunking runs with: the
-        caller's overlap where given, the adapter's own otherwise.
+        caller's values where given, the adapter's own otherwise.
         """
         settings = self.contract["late_chunking"]
-        window = min(int(settings["window_tokens"]), self.base.config.max_encoder_length)
+        limit = self.base.config.max_encoder_length
+        window = min(int(settings["window_tokens"]), limit)
+        if window_tokens is not None:
+            window = _whole_number("window_tokens", window_tokens)
+            if not 32 <= window <= limit:
+                raise DataError(f"window_tokens must be from 32 to {limit} (the model's context), got {window}")
         if overlap_tokens is None:
-            return window, int(settings["overlap_tokens"])
+            overlap = int(settings["overlap_tokens"])
+            if window_tokens is not None and not 0 <= overlap < window // 2:
+                raise DataError(
+                    f"the adapter's overlap of {overlap} tokens is too large for a window of {window} tokens; "
+                    f"pass an overlap_tokens below {window // 2}"
+                )
+            return window, overlap
         overlap = _whole_number("overlap_tokens", overlap_tokens)
         if not 0 <= overlap < window // 2:
             raise DataError(
@@ -233,21 +246,28 @@ class TextEmbedder:
 
     @torch.no_grad()
     def token_vectors(
-        self, text: str, *, title: str = "", kind: str = "passage", overlap_tokens: int | None = None
+        self,
+        text: str,
+        *,
+        title: str = "",
+        kind: str = "passage",
+        window_tokens: int | None = None,
+        overlap_tokens: int | None = None,
     ) -> TokenVectors:
         """
         Final-layer hidden vectors of every token of `text`, however long it is.
 
         The title, when given, is context for the encoder but not part of the
         returned tokens. Vectors are on the CPU, float32, not normalised.
-        A text longer than one window is encoded in windows that share
-        `overlap_tokens` tokens (default: the adapter's own setting).
+        The encoder reads `window_tokens` tokens at once, and a longer text is
+        encoded in windows that share `overlap_tokens` tokens. Both default to
+        the adapter's own settings; the window can be at most the model's context.
         """
         if kind not in ("passage", "query"):
             raise DataError(f"kind must be 'passage' or 'query', got {kind!r}")
         if not text.strip():
             raise DataError("the text is empty")
-        window, overlap = self._late_settings(overlap_tokens)
+        window, overlap = self._late_settings(window_tokens, overlap_tokens)
         head_text = self.contract[f"{kind}_prefix"] + (f"{title}. " if title else "")
         encoded = self.tokenizer.encode_with_spans(text, head_text)
         head = encoded.ids[: encoded.content.start]
@@ -284,6 +304,7 @@ class TextEmbedder:
         chunk_tokens: int | None = None,
         spans: Sequence[tuple[int, int]] | None = None,
         dim: int | None = None,
+        window_tokens: int | None = None,
         overlap_tokens: int | None = None,
     ) -> list[TextChunk]:
         """
@@ -292,11 +313,12 @@ class TextEmbedder:
         `spans` are the caller's own chunk boundaries as (start, end) character
         offsets; without them the built-in splitter makes chunks of whole
         sentences, about `chunk_tokens` tokens each. Vectors are unit length
-        and comparable with `encode_queries` output. `overlap_tokens` is the
-        overlap of the encoder windows of a long document, as in `token_vectors`.
+        and comparable with `encode_queries` output. `window_tokens` and
+        `overlap_tokens` set the encoder windows of a long document, as in
+        `token_vectors`.
         """
         self._check_dim(dim)
-        tokens = self.token_vectors(text, title=title, overlap_tokens=overlap_tokens)
+        tokens = self.token_vectors(text, title=title, window_tokens=window_tokens, overlap_tokens=overlap_tokens)
         ends = tokens.spans[:, 1]
         if spans is None:
             size = chunk_tokens or int(self.contract["late_chunking"]["chunk_tokens"])
