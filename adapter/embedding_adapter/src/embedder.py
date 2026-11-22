@@ -18,6 +18,15 @@ whole, so each chunk's vector knows the text around it, and a chunk is the
 mean of its own tokens only. A document longer than one window is encoded in
 overlapping windows and every token takes its vector from the window in
 which it lies furthest from an edge.
+
+The window and the overlap come from the adapter (`late_chunking_defaults`);
+`window_tokens=` and `overlap_tokens=` on `token_vectors` and `late_chunk`
+change them for one call. They shape the vectors of a long document, so build
+one index with one setting.
+
+Vectors have the full size unless `dim=` asks for a smaller one from
+`supported_dims`; every size is normalised on its own. `truncate` and
+`matryoshka` cut vectors you stored earlier the same way.
 """
 
 from __future__ import annotations
