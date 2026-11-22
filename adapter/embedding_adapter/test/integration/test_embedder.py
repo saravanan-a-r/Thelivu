@@ -212,3 +212,16 @@ def test_the_late_chunking_defaults_can_be_read_and_passed_back(embedder):
     assert embedder.late_chunking_defaults["window_tokens"] == 64
     again = embedder.token_vectors(LONG, window_tokens=64, overlap_tokens=8)
     assert torch.equal(again.vectors, embedder.token_vectors(LONG).vectors)
+
+
+def test_the_supported_dimensions_are_listed_and_enforced(trained, embedder):
+    config, _, _ = trained
+    assert embedder.supported_dims == [64, 32, 16]
+    for dim in embedder.supported_dims:
+        assert embedder.encode_queries(QUERIES, dim=dim).shape == (2, dim)
+    with pytest.raises(DataError, match=r"supports \[64, 32, 16\]"):
+        embedder.encode_passages(PASSAGES, dim=48)
+    plain = TextEmbedder.from_pretrained(config.base_checkpoint, device="cpu")
+    assert plain.supported_dims == [64]  # no adapter: only the full size
+    with pytest.raises(DataError, match="was not trained"):
+        plain.encode_queries(QUERIES, dim=32)

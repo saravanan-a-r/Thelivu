@@ -161,6 +161,12 @@ class TextEmbedder:
         return self.base.config.d_model
 
     @property
+    def supported_dims(self) -> list[int]:
+        """The vector sizes the adapter was trained for, largest first; any `dim` argument must be one of them."""
+        trained = {int(dim) for dim in self.contract.get("matryoshka_dims", [])}
+        return sorted(trained | {self.dimension}, reverse=True)
+
+    @property
     def late_chunking_defaults(self) -> dict[str, int]:
         """The window, overlap and chunk size (in tokens) that late chunking uses when a call sets none."""
         window, overlap = self._late_settings()
@@ -214,11 +220,8 @@ class TextEmbedder:
         return normalize(vectors, dim).cpu()
 
     def _check_dim(self, dim: int | None) -> None:
-        if dim is None or dim == self.dimension:
-            return
-        trained = self.contract.get("matryoshka_dims", [])
-        if dim not in trained:
-            raise DataError(f"dim {dim} was not trained; this adapter supports {trained or [self.dimension]}")
+        if dim is not None and dim not in self.supported_dims:
+            raise DataError(f"dim {dim} was not trained; this adapter supports {self.supported_dims}")
 
     # -- one vector per token (late chunking) ------------------------------
 
