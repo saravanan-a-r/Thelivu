@@ -219,6 +219,21 @@ class TextEmbedder:
         vectors = encode_tokens(self.encoder, tokens, self.runtime, unit=False)
         return normalize(vectors, dim).cpu()
 
+    def truncate(self, vectors: torch.Tensor | np.ndarray, dim: int) -> torch.Tensor:
+        """
+        Cut vectors you already hold to a smaller trained size, unit length again.
+
+        For an index or cache built at a larger size, such as the full 1,024:
+        keeps the first `dim` components and normalises them, which is what
+        `encode_*(dim=...)` does. Works on one vector or a batch, and on vectors
+        that were already cut once (512 to 256). `dim` must be in `supported_dims`.
+        """
+        self._check_dim(_whole_number("dim", dim))
+        tensor = torch.as_tensor(vectors, dtype=torch.float32)
+        if tensor.ndim == 0 or tensor.shape[-1] < dim:
+            raise DataError(f"the vectors are only {tensor.shape[-1] if tensor.ndim else 0} wide, cannot cut to {dim}")
+        return normalize(tensor, dim)
+
     def _check_dim(self, dim: int | None) -> None:
         if dim is not None and dim not in self.supported_dims:
             raise DataError(f"dim {dim} was not trained; this adapter supports {self.supported_dims}")

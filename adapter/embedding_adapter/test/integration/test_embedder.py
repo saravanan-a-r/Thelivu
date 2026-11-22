@@ -225,3 +225,21 @@ def test_the_supported_dimensions_are_listed_and_enforced(trained, embedder):
     assert plain.supported_dims == [64]  # no adapter: only the full size
     with pytest.raises(DataError, match="was not trained"):
         plain.encode_queries(QUERIES, dim=32)
+
+
+def test_stored_vectors_can_be_cut_to_a_smaller_size_later(embedder):
+    full = embedder.encode_queries(QUERIES)
+    for dim in (32, 16):
+        assert torch.allclose(embedder.truncate(full, dim), embedder.encode_queries(QUERIES, dim=dim), atol=1e-6)
+    assert torch.allclose(embedder.truncate(full.numpy(), 16), embedder.encode_queries(QUERIES, dim=16), atol=1e-6)
+    half = embedder.truncate(full, 32)
+    assert torch.allclose(embedder.truncate(half, 16), embedder.encode_queries(QUERIES, dim=16), atol=1e-6)
+    assert torch.allclose(embedder.truncate(full, 16).norm(dim=1), torch.ones(2), atol=1e-6)
+    assert embedder.truncate(full[0], 16).shape == (16,)
+    assert torch.equal(full, embedder.encode_queries(QUERIES))  # the input is left alone
+    with pytest.raises(DataError, match="was not trained"):
+        embedder.truncate(full, 24)
+    with pytest.raises(DataError, match="only 32 wide"):
+        embedder.truncate(half, 64)
+    with pytest.raises(DataError, match="whole number"):
+        embedder.truncate(full, None)
