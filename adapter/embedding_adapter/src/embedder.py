@@ -234,6 +234,21 @@ class TextEmbedder:
             raise DataError(f"the vectors are only {tensor.shape[-1] if tensor.ndim else 0} wide, cannot cut to {dim}")
         return normalize(tensor, dim)
 
+    def matryoshka(
+        self, vectors: torch.Tensor | np.ndarray, dims: Sequence[int] | None = None
+    ) -> dict[int, torch.Tensor]:
+        """
+        Several sizes of the same vectors at once, each one unit length: {dim: vectors}.
+
+        `dims` picks the sizes, in the order given. Without it, every supported
+        size that fits the vectors is returned, largest first, which is handy for
+        keeping a coarse and a fine index side by side.
+        """
+        tensor = torch.as_tensor(vectors, dtype=torch.float32)
+        if dims is None:
+            dims = [dim for dim in self.supported_dims if tensor.ndim and dim <= tensor.shape[-1]]
+        return {dim: self.truncate(tensor, dim) for dim in dims}
+
     def _check_dim(self, dim: int | None) -> None:
         if dim is not None and dim not in self.supported_dims:
             raise DataError(f"dim {dim} was not trained; this adapter supports {self.supported_dims}")

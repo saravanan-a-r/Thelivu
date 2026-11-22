@@ -243,3 +243,19 @@ def test_stored_vectors_can_be_cut_to_a_smaller_size_later(embedder):
         embedder.truncate(half, 64)
     with pytest.raises(DataError, match="whole number"):
         embedder.truncate(full, None)
+
+
+def test_every_supported_size_comes_from_one_set_of_vectors(embedder):
+    full = embedder.encode_passages(PASSAGES)
+    sizes = embedder.matryoshka(full)
+    assert list(sizes) == [64, 32, 16]
+    for dim, vectors in sizes.items():
+        assert torch.allclose(vectors, embedder.encode_passages(PASSAGES, dim=dim), atol=1e-6)
+        assert torch.allclose(vectors.norm(dim=1), torch.ones(2), atol=1e-6)
+    assert list(embedder.matryoshka(sizes[32])) == [32, 16]  # only the sizes that fit
+    assert list(embedder.matryoshka(full, dims=[16, 64])) == [16, 64]
+    assert embedder.matryoshka(full, dims=[]) == {}
+    with pytest.raises(DataError, match="was not trained"):
+        embedder.matryoshka(full, dims=[32, 48])
+    with pytest.raises(DataError, match="only 32 wide"):
+        embedder.matryoshka(sizes[32], dims=[64])
