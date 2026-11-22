@@ -259,3 +259,38 @@ def test_every_supported_size_comes_from_one_set_of_vectors(embedder):
         embedder.matryoshka(full, dims=[32, 48])
     with pytest.raises(DataError, match="only 32 wide"):
         embedder.matryoshka(sizes[32], dims=[64])
+
+
+def test_the_encode_command_passes_the_late_chunking_options(trained, embedder, workspace, tmp_path, capsys):
+    import json
+
+    import yaml
+
+    from conftest import config_document
+    from embed import main
+
+    _, _, adapter = trained
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump(config_document(workspace)), encoding="utf-8")
+    document = tmp_path / "document.txt"
+    document.write_text(LONG, encoding="utf-8")
+    base = ["encode", "--config", str(config_file), "--adapter", str(adapter), "--device", "cpu"]
+
+    options = ["--chunk-file", str(document), "--chunk-tokens", "20", "--dim", "16"]
+    assert main(base + options + ["--window-tokens", "96", "--overlap-tokens", "16"]) == 0
+    got = json.loads(capsys.readouterr().out)
+    expected = embedder.late_chunk(LONG, chunk_tokens=20, dim=16, window_tokens=96, overlap_tokens=16)
+    assert [(c["start"], c["end"]) for c in got] == [(c.start, c.end) for c in expected]
+    got_vectors = torch.tensor([c["vector"] for c in got])
+    assert torch.allclose(got_vectors, torch.stack([c.vector for c in expected]), atol=1e-5)
+
+    assert main(base + options) == 0  # without the new options: the adapter's own settings
+    plain = json.loads(capsys.readouterr().out)
+    assert plain != got  # the options really reached the encoder
+    own = embedder.late_chunk(LONG, chunk_tokens=20, dim=16)
+    assert torch.allclose(torch.tensor([c["vector"] for c in plain]), torch.stack([c.vector for c in own]), atol=1e-5)
+
+    assert main(base + options + ["--window-tokens", "8"]) == 2
+    assert "window_tokens must be from 32 to 128" in capsys.readouterr().err
+    assert main(base + ["--query", "a question", "--overlap-tokens", "4"]) == 2
+    assert "only used with --chunk-file" in capsys.readouterr().err

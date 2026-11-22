@@ -115,8 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
     what.add_argument("--query", action="append", help="a query (repeatable)")
     what.add_argument("--passage", action="append", help="a passage (repeatable)")
     what.add_argument("--chunk-file", help="a text file to late-chunk")
-    sub.add_argument("--chunk-tokens", type=int, default=None)
-    sub.add_argument("--dim", type=int, default=None)
+    sub.add_argument("--chunk-tokens", type=int, default=None, help="--chunk-file: target tokens per chunk")
+    sub.add_argument("--window-tokens", type=int, default=None,
+                     help="--chunk-file: tokens the encoder reads at once (default: adapter's)")  # fmt: skip
+    sub.add_argument("--overlap-tokens", type=int, default=None,
+                     help="--chunk-file: tokens shared by neighbouring windows (default: adapter's)")  # fmt: skip
+    sub.add_argument("--dim", type=int, default=None, help="vector size, one of the adapter's trained sizes")
     return parser
 
 
@@ -339,7 +343,10 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
 def cmd_encode(args: argparse.Namespace) -> int:
     from src.embedder import TextEmbedder
+    from src.errors import EmbeddingAdapterError
 
+    if not args.chunk_file and (args.window_tokens is not None or args.overlap_tokens is not None):
+        raise EmbeddingAdapterError("--window-tokens and --overlap-tokens are only used with --chunk-file")
     config = read_config(args)
     embedder = TextEmbedder.from_pretrained(
         config.base_checkpoint, args.adapter, load_decoder=args.load_decoder, device=args.device
@@ -348,7 +355,10 @@ def cmd_encode(args: argparse.Namespace) -> int:
     print(f"loaded {loaded}: {embedder.base.parameter_count():,} base parameters", file=sys.stderr)
     if args.chunk_file:
         text = Path(args.chunk_file).read_text(encoding="utf-8")
-        chunks = embedder.late_chunk(text, chunk_tokens=args.chunk_tokens, dim=args.dim)
+        chunks = embedder.late_chunk(
+            text, chunk_tokens=args.chunk_tokens, dim=args.dim,
+            window_tokens=args.window_tokens, overlap_tokens=args.overlap_tokens,
+        )  # fmt: skip
         output = [{"start": c.start, "end": c.end, "tokens": c.tokens, "text": c.text,
                    "vector": c.vector.tolist()} for c in chunks]  # fmt: skip
     elif args.query:
